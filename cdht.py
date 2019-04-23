@@ -6,9 +6,9 @@
 # fifth is probability of dropping peer
 # UDP peer ports are from 50000 + peer number
 
+# do we need comments?
+
 # what happens if file is 0?
-# is time just how many seconds since start of program?
-# do we limit the seconds to 2 decimal place?
 # can ACK's be lost in transmission? using UDP
 # what is actully the point of sequence number?
 # what happens if i drop my last transmission because it is for breaking loop
@@ -22,6 +22,7 @@ import threading
 import sys
 import time
 import random
+import signal
 
 def custom_hash(num):
     return num%256
@@ -30,26 +31,25 @@ def formatter(event, time, seq_num, size, ack_num):
     return '%-40s %-20.2f %-20s %-20s %-s\n' % (event, time, seq_num, size, ack_num)
 
 class PingListener(threading.Thread):
-    def __init__(self, num, start_time):
+    def __init__(self, num, start_time, server):
         super(PingListener, self).__init__()
         # self.server = socket(AF_INET, SOCK_DGRAM)
         # self.server.bind(("localhost", 50000 + num))
         self.num = num
         self.start_time = start_time
+        self.server = server
     def run(self):
         global preds
         preds = []
         while True:
-            server = socket(AF_INET, SOCK_DGRAM)
-            server.bind(("localhost", 50000 + self.num))
-            conn, addr = server.recvfrom(2048)
+            conn, addr = self.server.recvfrom(2048)
             details = conn.decode().split()
             if details[0] == "file":
                 print("Received a response message from peer " + details[1] + ", which has the file " + details[2] + ".\nWe now start receiving the file ………")
                 ack_number = 1
                 seq_num = 1
                 while True:
-                    conn, addr = server.recvfrom(2048)
+                    conn, addr = self.server.recvfrom(2048)
                     if conn == b'':
                         break
                     receiver_log = open("requesting_log.txt", 'a+')
@@ -59,7 +59,9 @@ class PingListener(threading.Thread):
                     receiver_log.write(formatter("rcv", timer, str(0), str(len(conn)), str(ack_number)))
                     ack_number += len(conn)
                     
-                    server.sendto(conn, addr)
+                    # sequence number must match. if it doesn't that means the ACK wasn't received
+
+                    self.server.sendto(conn, addr)
                     
                     end = time.time()
                     timer = end - self.start_time
@@ -69,16 +71,17 @@ class PingListener(threading.Thread):
                     file = open("received_file.pdf", 'ab+')
                     file.write(conn)
                     file.close()
-                server.close()
+                self.server.close()
                 print("The file is received.")
                 os.system("xdg-open received_file.pdf")
                 os.system("xdg-open requesting_log.txt")
                 os.system("xdg-open responding_log.txt")
-            elif details[0] == "alive":
-                server.sendto(conn, addr)
             elif details[0] == "request":
                 server = socket(AF_INET, SOCK_DGRAM)
-                preds.append(int(details[1]))
+                if int(details[1]) not in preds:
+                    preds.append(int(details[1]))
+                if len(preds) > 2:
+                    preds = []
                 sender_string = "response " + str(self.num)
                 server.sendto(sender_string.encode(), addr)
                 # server.sendall(sender_string.encode())
@@ -147,44 +150,41 @@ class TCPFilePingListener(threading.Thread):
         global neighbour2
         while True:
             conn, addr = self.tcp_socket.accept()
-            # print("accepted...")
             byte_message = conn.recv(1024)
             message = byte_message.decode().split()
-            # print(message)
             port_num = int(message[1])
             send_socket = socket(AF_INET, SOCK_DGRAM)
-            # what about 0?
             if message[0] == "quit":
                 print("Peer " + message[1] + " will depart from the network.")
                 if self.neigh2 == int(message[1]):
                     neighbour1 = self.neigh
                     neighbour2 = int(message[2])
+                    self.neigh2 = neighbour2
                     print("My first successor is now peer " + str(self.neigh))
                     print("My second successor is now peer " + message[2])
                 else:
                     neighbour1 = int(message[2])
                     neighbour2 = int(message[3])
                     self.neigh = neighbour1
+                    self.neigh2 = neighbour2
                     print("My first successor is now peer " + message[2])
                     print("My second successor is now peer " + message[3])
                 # ping through UDP?
-                time.sleep(self.num/2)
-                send_socket.connect(("localhost", 50000 + neighbour1))
-                send_socket.sendall(("request " + str(self.num)).encode())
-                send_socket.close()
-                time.sleep(self.num/2)
-                send_socket = socket(AF_INET, SOCK_DGRAM)
-                send_socket.connect(("localhost", 50000 + neighbour2))
-                send_socket.sendall(("request " + str(self.num)).encode())
-                send_socket.close()
+                # time.sleep(self.num/2)
+                # send_socket.connect(("localhost", 50000 + neighbour1))
+                # send_socket.sendall(("request " + str(self.num)).encode())
+                # send_socket.close()
+                # time.sleep(self.num/2)
+                # send_socket = socket(AF_INET, SOCK_DGRAM)
+                # send_socket.connect(("localhost", 50000 + neighbour2))
+                # send_socket.sendall(("request " + str(self.num)).encode())
+                # send_socket.close()
             elif message[0] == "neighbour":
                 # print(addr)
                 # send_socket.connect(addr)
                 if message[1] == '1':
-                    # print("Sending...")
                     conn.send(str(neighbour1).encode())
                 elif message[1] == '2':
-                    # print("Sending...")
                     conn.send(str(neighbour2).encode())
                 send_socket.close()
             elif port_num <= self.num:
@@ -219,36 +219,37 @@ class AliveTester(threading.Thread):
         super().run()
         timeout_counter = 0
         timeout_counter2 = 0
-        sequence_num = 0
         global neighbour1
         global neighbour2
-        # is a sequence number a must? i am not understanding the use of it
         while True:
             alive_tester = socket(AF_INET, SOCK_DGRAM)
             # alive_tester.connect(("localhost", 50000 + neighbour1))
-            alive_tester.sendto(("alive " + str(sequence_num)).encode(), ("localhost", 50000 + neighbour1))
-            alive_tester.settimeout(2)
+            alive_tester.sendto(("request " + self.peer_num).encode(), ("localhost", 50000 + neighbour1))
+            alive_tester.settimeout(int(self.peer_num)/2)
             try:
-                alive_tester.recvfrom(2048)
+                details, addr = alive_tester.recvfrom(2048)
+                details = details.decode().split()
+                print("A ping " + details[0] + " message was received from Peer " + details[1] + ".")
                 timeout_counter = 0
             except timeout as e:
                 timeout_counter += 1
             alive_tester.close()
+            # time.sleep(int(self.peer_num)/2)
             time.sleep(5)
 
             alive_tester = socket(AF_INET, SOCK_DGRAM)
-            # alive_tester.connect(("localhost", 50000 + neighbour2))
-            alive_tester.sendto(("alive " + str(sequence_num)).encode(), ("localhost", 50000 + neighbour2))
-            alive_tester.settimeout(2)
+            alive_tester.sendto(("request " + self.peer_num).encode(), ("localhost", 50000 + neighbour2))
+            alive_tester.settimeout(int(self.peer_num)/2)
             try:
-                alive_tester.recvfrom(2048)
+                details, addr = alive_tester.recvfrom(2048)
+                details = details.decode().split()
+                print("A ping " + details[0] + " message was received from Peer " + details[1] + ".")
                 timeout_counter2 = 0
             except timeout as e:
                 timeout_counter2 += 1
             alive_tester.close()
+            # time.sleep(int(self.peer_num)/2)
             time.sleep(5)
-            sequence_num += 1
-            # can only disconnect one at a time or else I'm fucked
             if timeout_counter > 5 or timeout_counter2 > 5:
                 if timeout_counter > 5:
                     print("Peer " + str(neighbour1) + " is no longer alive.")
@@ -271,16 +272,16 @@ class AliveTester(threading.Thread):
                     timeout_counter2 = 0
                 print("My first successor is now peer " + str(neighbour1))
                 print("My second successor is now peer " + str(neighbour2))
-                time.sleep(int(self.peer_num)/2)
-                ping_socket = socket(AF_INET, SOCK_DGRAM)
-                ping_socket.connect(("localhost", 50000 + neighbour1))
-                ping_socket.sendall(("request " + self.peer_num).encode())
-                ping_socket.close()
-                time.sleep(int(self.peer_num)/2)
-                ping_socket = socket(AF_INET, SOCK_DGRAM)
-                ping_socket.connect(("localhost", 50000 + neighbour2))
-                ping_socket.sendall(("request " + self.peer_num).encode())
-                ping_socket.close()
+                # time.sleep(int(self.peer_num)/2)
+                # ping_socket = socket(AF_INET, SOCK_DGRAM)
+                # ping_socket.connect(("localhost", 50000 + neighbour1))
+                # ping_socket.sendall(("request " + self.peer_num).encode())
+                # ping_socket.close()
+                # time.sleep(int(self.peer_num)/2)
+                # ping_socket = socket(AF_INET, SOCK_DGRAM)
+                # ping_socket.connect(("localhost", 50000 + neighbour2))
+                # ping_socket.sendall(("request " + self.peer_num).encode())
+                # ping_socket.close()
         
 
 start_time = time.time()
@@ -292,43 +293,46 @@ probability = float(sys.argv[5])
 
 preds = None
 
-thread1 = PingListener(peer_number, start_time)
+server = socket(AF_INET, SOCK_DGRAM)
+server.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
+server.bind(("localhost", 50000 + peer_number))
+thread1 = PingListener(peer_number, start_time, server)
 thread1.start()
 
 # under the assumption that none of the neighbours have left
-send_string = "request " + str(peer_number)
-sender = socket(AF_INET, SOCK_DGRAM)
-sender.settimeout(2)
-while True:
-    time.sleep(peer_number/2)
-    sender.sendto(send_string.encode(), ("localhost", 50000 + neighbour1))
-    try:
-        details, addr = sender.recvfrom(2048)
-        details = details.decode().split()
-        print("A ping " + details[0] + " message was received from Peer " + details[1] + ".")
-        break
-    except timeout as e:
-        pass
-sender.close()
+# send_string = "request " + str(peer_number)
+# sender = socket(AF_INET, SOCK_DGRAM)
+# sender.settimeout(2)
+# while True:
+#     time.sleep(peer_number/2)
+#     sender.sendto(send_string.encode(), ("localhost", 50000 + neighbour1))
+#     try:
+#         details, addr = sender.recvfrom(2048)
+#         details = details.decode().split()
+#         print("A ping " + details[0] + " message was received from Peer " + details[1] + ".")
+#         break
+#     except timeout as e:
+#         pass
+# sender.close()
 
-sender = socket(AF_INET, SOCK_DGRAM)
-sender.settimeout(2)
-while True:
-    time.sleep(peer_number/2)
-    sender.sendto(send_string.encode(), ("localhost", 50000 + neighbour2))
-    try:
-        details, addr = sender.recvfrom(2048)
-        details = details.decode().split()
-        print("A ping response message was received from Peer " + details[1] + ".")
-        break
-    except timeout as e:
-        pass
-sender.close()
+# sender = socket(AF_INET, SOCK_DGRAM)
+# sender.settimeout(2)
+# while True:
+#     time.sleep(peer_number/2)
+#     sender.sendto(send_string.encode(), ("localhost", 50000 + neighbour2))
+#     try:
+#         details, addr = sender.recvfrom(2048)
+#         details = details.decode().split()
+#         print("A ping response message was received from Peer " + details[1] + ".")
+#         break
+#     except timeout as e:
+#         pass
+# sender.close()
 
 # setup TCP socket for listening and sending file requests
 my_socket = socket(AF_INET, SOCK_STREAM)
 my_socket.bind(("localhost", 50000 + peer_number))
-my_socket.listen(1)
+my_socket.listen(5)
 tcp_listener_thread = TCPFilePingListener(my_socket, peer_number, neighbour1, neighbour2, package_size, probability, start_time)
 tcp_listener_thread.start()
 
@@ -354,6 +358,22 @@ while True:
         sender_socket.sendall(("file " + file_location + " " + str(peer_number) + " " + split_command[1]).encode())
         sender_socket.close()
     elif first_command == "quit":
+        peer_finder = socket(AF_INET, SOCK_STREAM)
+        peer_finder.connect(("localhost", 50000 + peer_number))
+        peer_finder.sendall(b"neighbour 1")
+        # neighbour1 = int(peer_finder.recv(1024).decode())
+        conn = peer_finder.recv(1024)
+        peer_finder.close()
+        neighbour1 = int(conn.decode())
+
+        peer_finder = socket(AF_INET, SOCK_STREAM)
+        peer_finder.connect(("localhost", 50000 + peer_number))
+        peer_finder.sendall(b"neighbour 2")
+        # neighbour2 = int(peer_finder.recv(1024).decode())
+        conn = peer_finder.recv(1024)
+        neighbour2 = int(conn.decode())
+        peer_finder.close()
+
         quit_socket = socket(AF_INET, SOCK_STREAM)
         quit_socket.connect(("localhost", 50000 + preds[0]))
         quit_socket.sendall(("quit " + str(peer_number) + " " + str(neighbour1) + " " + str(neighbour2)).encode())
@@ -362,6 +382,11 @@ while True:
         quit_socket.connect(("localhost", 50000 + preds[1]))
         quit_socket.sendall(("quit " + str(peer_number) + " " + str(neighbour1) + " " + str(neighbour2)).encode())
         quit_socket.close()
-        my_socket.close()
-        quit()
-        # sys.exit()
+
+        # quit_socket.sendto(("quit " + str(peer_number) + " " + str(neighbour1) + " " + str(neighbour2)).encode(), ("localhost", 50000 + preds[0]))
+        # quit_socket.close()
+        # quit_socket = socket(AF_INET, SOCK_STREAM)
+        # quit_socket.connect(("localhost", 50000 + preds[1]))
+        # quit_socket.sendto(("quit " + str(peer_number) + " " + str(neighbour1) + " " + str(neighbour2)).encode(), ("localhost", 50000 + preds[1]))
+        # quit_socket.close()
+        os.killpg(os.getpid(), signal.SIGKILL)
