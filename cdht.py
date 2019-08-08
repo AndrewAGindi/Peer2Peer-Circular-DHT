@@ -6,16 +6,6 @@
 # fifth is probability of dropping peer
 # UDP peer ports are from 50000 + peer number
 
-# do we need comments?
-
-# what happens if file is 0?
-# can ACK's be lost in transmission? using UDP
-# what is actully the point of sequence number?
-# what happens if i drop my last transmission because it is for breaking loop
-# if correct transmission then should be snd and rcv
-# if not will be Drop then quit
-# expected to be able to handle multiple requests simultaneously?
-# as in multiple calls to request at a time? or wait for one to complete before another
 from socket import *
 import os
 import threading
@@ -33,8 +23,6 @@ def formatter(event, time, seq_num, size, ack_num):
 class PingListener(threading.Thread):
     def __init__(self, num, start_time, server):
         super(PingListener, self).__init__()
-        # self.server = socket(AF_INET, SOCK_DGRAM)
-        # self.server.bind(("localhost", 50000 + num))
         self.num = num
         self.start_time = start_time
         self.server = server
@@ -84,8 +72,6 @@ class PingListener(threading.Thread):
                     preds = []
                 sender_string = "response " + str(self.num)
                 server.sendto(sender_string.encode(), addr)
-                # server.sendall(sender_string.encode())
-                # server.close()
                 print("A ping request message was received from Peer " + details[1] + ".")
                 server.close()
 
@@ -169,19 +155,7 @@ class TCPFilePingListener(threading.Thread):
                     self.neigh2 = neighbour2
                     print("My first successor is now peer " + message[2])
                     print("My second successor is now peer " + message[3])
-                # ping through UDP?
-                # time.sleep(self.num/2)
-                # send_socket.connect(("localhost", 50000 + neighbour1))
-                # send_socket.sendall(("request " + str(self.num)).encode())
-                # send_socket.close()
-                # time.sleep(self.num/2)
-                # send_socket = socket(AF_INET, SOCK_DGRAM)
-                # send_socket.connect(("localhost", 50000 + neighbour2))
-                # send_socket.sendall(("request " + str(self.num)).encode())
-                # send_socket.close()
             elif message[0] == "neighbour":
-                # print(addr)
-                # send_socket.connect(addr)
                 if message[1] == '1':
                     conn.send(str(neighbour1).encode())
                 elif message[1] == '2':
@@ -208,7 +182,6 @@ class TCPFilePingListener(threading.Thread):
                 tcp_send_socket.sendall(byte_message)
                 tcp_send_socket.close()
             send_socket.close()
-        # self.tcp_socket.close()
 
 class AliveTester(threading.Thread):
     def __init__(self, peer_num):
@@ -223,7 +196,6 @@ class AliveTester(threading.Thread):
         global neighbour2
         while True:
             alive_tester = socket(AF_INET, SOCK_DGRAM)
-            # alive_tester.connect(("localhost", 50000 + neighbour1))
             alive_tester.sendto(("request " + self.peer_num).encode(), ("localhost", 50000 + neighbour1))
             alive_tester.settimeout(int(self.peer_num)/2)
             try:
@@ -234,7 +206,6 @@ class AliveTester(threading.Thread):
             except timeout as e:
                 timeout_counter += 1
             alive_tester.close()
-            # time.sleep(int(self.peer_num)/2)
             time.sleep(5)
 
             alive_tester = socket(AF_INET, SOCK_DGRAM)
@@ -248,7 +219,6 @@ class AliveTester(threading.Thread):
             except timeout as e:
                 timeout_counter2 += 1
             alive_tester.close()
-            # time.sleep(int(self.peer_num)/2)
             time.sleep(5)
             if timeout_counter > 5 or timeout_counter2 > 5:
                 if timeout_counter > 5:
@@ -272,17 +242,6 @@ class AliveTester(threading.Thread):
                     timeout_counter2 = 0
                 print("My first successor is now peer " + str(neighbour1))
                 print("My second successor is now peer " + str(neighbour2))
-                # time.sleep(int(self.peer_num)/2)
-                # ping_socket = socket(AF_INET, SOCK_DGRAM)
-                # ping_socket.connect(("localhost", 50000 + neighbour1))
-                # ping_socket.sendall(("request " + self.peer_num).encode())
-                # ping_socket.close()
-                # time.sleep(int(self.peer_num)/2)
-                # ping_socket = socket(AF_INET, SOCK_DGRAM)
-                # ping_socket.connect(("localhost", 50000 + neighbour2))
-                # ping_socket.sendall(("request " + self.peer_num).encode())
-                # ping_socket.close()
-        
 
 start_time = time.time()
 peer_number = int(sys.argv[1])
@@ -298,36 +257,6 @@ server.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
 server.bind(("localhost", 50000 + peer_number))
 thread1 = PingListener(peer_number, start_time, server)
 thread1.start()
-
-# under the assumption that none of the neighbours have left
-# send_string = "request " + str(peer_number)
-# sender = socket(AF_INET, SOCK_DGRAM)
-# sender.settimeout(2)
-# while True:
-#     time.sleep(peer_number/2)
-#     sender.sendto(send_string.encode(), ("localhost", 50000 + neighbour1))
-#     try:
-#         details, addr = sender.recvfrom(2048)
-#         details = details.decode().split()
-#         print("A ping " + details[0] + " message was received from Peer " + details[1] + ".")
-#         break
-#     except timeout as e:
-#         pass
-# sender.close()
-
-# sender = socket(AF_INET, SOCK_DGRAM)
-# sender.settimeout(2)
-# while True:
-#     time.sleep(peer_number/2)
-#     sender.sendto(send_string.encode(), ("localhost", 50000 + neighbour2))
-#     try:
-#         details, addr = sender.recvfrom(2048)
-#         details = details.decode().split()
-#         print("A ping response message was received from Peer " + details[1] + ".")
-#         break
-#     except timeout as e:
-#         pass
-# sender.close()
 
 # setup TCP socket for listening and sending file requests
 my_socket = socket(AF_INET, SOCK_STREAM)
@@ -361,7 +290,6 @@ while True:
         peer_finder = socket(AF_INET, SOCK_STREAM)
         peer_finder.connect(("localhost", 50000 + peer_number))
         peer_finder.sendall(b"neighbour 1")
-        # neighbour1 = int(peer_finder.recv(1024).decode())
         conn = peer_finder.recv(1024)
         peer_finder.close()
         neighbour1 = int(conn.decode())
@@ -369,7 +297,6 @@ while True:
         peer_finder = socket(AF_INET, SOCK_STREAM)
         peer_finder.connect(("localhost", 50000 + peer_number))
         peer_finder.sendall(b"neighbour 2")
-        # neighbour2 = int(peer_finder.recv(1024).decode())
         conn = peer_finder.recv(1024)
         neighbour2 = int(conn.decode())
         peer_finder.close()
@@ -383,10 +310,4 @@ while True:
         quit_socket.sendall(("quit " + str(peer_number) + " " + str(neighbour1) + " " + str(neighbour2)).encode())
         quit_socket.close()
 
-        # quit_socket.sendto(("quit " + str(peer_number) + " " + str(neighbour1) + " " + str(neighbour2)).encode(), ("localhost", 50000 + preds[0]))
-        # quit_socket.close()
-        # quit_socket = socket(AF_INET, SOCK_STREAM)
-        # quit_socket.connect(("localhost", 50000 + preds[1]))
-        # quit_socket.sendto(("quit " + str(peer_number) + " " + str(neighbour1) + " " + str(neighbour2)).encode(), ("localhost", 50000 + preds[1]))
-        # quit_socket.close()
         os.killpg(os.getpid(), signal.SIGKILL)
